@@ -17,6 +17,7 @@ services:
       - ./upload_service:/app
     environment:
       - RABBITMQ_HOST=&{RABBITMQ_HOST}
+      - QUEUE_NAME=${QUEUE_NAME}
     depends_on:
       - rabbitmq
 
@@ -25,8 +26,9 @@ services:
     volumes:
       - ./ai_service:/app
     environment:
-      - RABBITMQ_HOST=${GEMINI_API_KEY}
-      - GEMINI_API_KEY=${RABBITMQ_HOST}
+      - RABBITMQ_HOST=${RABBITMQ_HOST}
+      - QUEUE_NAME=${QUEUE_NAME}
+      - GEMINI_API_KEY=${GEMINI_API_KEY}
     depends_on:
       - rabbitmq
 

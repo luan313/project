@@ -1,0 +1,41 @@
+version: '3.8'
+
+services:
+  rabbitmq:
+    image: "rabbitmq:3-management"
+    ports:
+      - "5672:5672"
+      - "15672:15672"
+    volumes:
+      - rabbitmq_data:/var/lib/rabbitmq
+
+  upload_service:
+    build: ./upload_service
+    ports:
+      - "5001:5001"
+    volumes:
+      - ./upload_service:/app
+    environment:
+      - RABBITMQ_HOST=&{RABBITMQ_HOST}
+    depends_on:
+      - rabbitmq
+
+  ai_service:
+    build: ./ai_service
+    volumes:
+      - ./ai_service:/app
+    environment:
+      - RABBITMQ_HOST=${GEMINI_API_KEY}
+      - GEMINI_API_KEY=${RABBITMQ_HOST}
+    depends_on:
+      - rabbitmq
+
+  frontend:
+    build: ./frontend
+    ports:
+      - "3000:80"
+    depends_on:
+      - upload_service
+
+volumes:
+  rabbitmq_data:

@@ -2,45 +2,54 @@ import pika
 import json
 import time
 import os
+import google.generativeai as genai
+import sys
 
-# --- Configuração do RabbitMQ lida das variáveis de ambiente ---
 RABBITMQ_HOST = os.getenv('RABBITMQ_HOST', 'rabbitmq')
 QUEUE_NAME = os.getenv('QUEUE_NAME', 'doc_processing_queue')
+GEMINI_API_KEY = os.getenv('GEMINI_API_KEY')
+
+if not GEMINI_API_KEY:
+    print('[!] Erro: A variável de ambiente GEMINI_API_KEY não está definida.')
+    sys.exit(1)
+
+genai.configure(api_key=GEMINI_API_KEY)
+model = genai.GenerativeModel('gemini-pro')
 
 def process_message(channel, method, properties, body):
-    """
-    Função callback que é executada sempre que uma mensagem é recebida da fila.
-    """
+   
     print(" [x] Mensagem recebida")
     try:
-        # Converte o corpo da mensagem (que está em bytes) para um dicionário Python
         data = json.loads(body.decode('utf-8'))
         user_query = data.get('user_query')
         document_data = data.get('document_data')
+        document_content = document_data.get('content')
 
         print(f"     - Pergunta do Utilizador: {user_query}")
         print(f"     - Dados do Documento: {document_data.get('filename')}")
 
-        # --- A LÓGICA DE CHAMADA À IA ENTRARIA AQUI ---
-        # Por agora, vamos apenas simular um tempo de processamento.
-        print("     - [Simulação] A processar com a IA...")
-        time.sleep(3) # Simula um trabalho de 3 segundos
-        print("     - [Simulação] Processamento concluído.")
+        prompt = f"""
+            Com base no conteúdo do documento recebido, responda a pergunta do utilizador.
+            Conteúdo do Documento:
+            "{document_content}"
 
-        # Confirma ao RabbitMQ que a mensagem foi processada com sucesso.
-        # Isto remove a mensagem da fila.
+            Pergunta do Utilizador:
+            "{user_query}"
+            """
+        response = model.generate_content(prompt)
+        ai_response = response.text
+        print(f""" - Resposta da IA: {ai_response}""")
+
         channel.basic_ack(delivery_tag=method.delivery_tag)
         print(" [x] Mensagem processada e confirmada (ack).")
 
     except Exception as e:
         print(f" [!] Erro ao processar a mensagem: {e}")
-        # Rejeita a mensagem sem a recolocar na fila para evitar loops de erro.
         channel.basic_nack(delivery_tag=method.delivery_tag, requeue=False)
 
 def main():
     connection = None
-    # Tenta conectar ao RabbitMQ repetidamente até conseguir.
-    # Isto é útil porque o worker pode iniciar antes do RabbitMQ estar pronto.
+    print("A iniciar o worker do AI service...")
     while not connection:
         try:
             connection = pika.BlockingConnection(pika.ConnectionParameters(host=RABBITMQ_HOST))
@@ -50,15 +59,16 @@ def main():
             time.sleep(5)
 
     channel = connection.channel()
+    print("Canal aberto.")
 
-    # Garante que a fila existe (deve ser a mesma do serviço de upload)
-    channel.queue_declare(queue=QUEUE_NAME)
+    channel.queue_declare(queue=QUEUE_NAME, durable=True)
+    print(f"Fila '{QUEUE_NAME}' declarada.")
 
-    # Define que este worker só deve pegar 1 mensagem de cada vez.
     channel.basic_qos(prefetch_count=1)
+    print("Qualidade de Serviço (QoS) definida para 1.")
 
-    # Associa a nossa função `process_message` à fila.
     channel.basic_consume(queue=QUEUE_NAME, on_message_callback=process_message)
+    print("Consumidor configurado.")
 
     print(' [*] A aguardar por mensagens. Para sair, pressione CTRL+C')
     channel.start_consuming()
